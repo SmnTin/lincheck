@@ -3,54 +3,62 @@ use std::sync::Mutex;
 
 pub(crate) type Timestamp = usize;
 pub(crate) type ThreadId = usize;
+pub(crate) type InvocationId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Invocation<Op, Ret> {
-    pub(crate) thread_id: Option<ThreadId>,
-    pub(crate) inv_timestamp: Timestamp,
-    pub(crate) ret_timestamp: Timestamp,
+    pub(crate) op: Op,
+    pub(crate) ret: Ret,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ParallelInvocation<Op, Ret> {
+    pub(crate) thread_id: ThreadId,
+    pub(crate) call_timestamp: Timestamp,
+    pub(crate) return_timestamp: Timestamp,
 
     pub(crate) op: Op,
     pub(crate) ret: Ret,
 }
 
 pub(crate) type History<Op, Ret> = Vec<Invocation<Op, Ret>>;
+pub(crate) type ParallelHistory<Op, Ret> = Vec<ParallelInvocation<Op, Ret>>;
 
 pub(crate) struct InternalRecorder<Op, Ret> {
-    thread_id: Option<ThreadId>,
-    invocations: History<Op, Ret>,
+    thread_id: ThreadId,
+    invocations: ParallelHistory<Op, Ret>,
     current_op: Option<Op>,
-    inv_timestamp: usize,
+    call_timestamp: usize,
 }
 
 impl<Op, Ret> InternalRecorder<Op, Ret> {
-    pub(crate) fn new(thread_id: Option<ThreadId>) -> Self {
+    pub(crate) fn new(thread_id: ThreadId) -> Self {
         InternalRecorder {
             thread_id,
             invocations: Vec::new(),
             current_op: None,
-            inv_timestamp: 0,
+            call_timestamp: 0,
         }
     }
 
-    pub(crate) fn add_invocation(&mut self, op: Op, inv_timestamp: usize) {
+    pub(crate) fn add_call(&mut self, op: Op, timestamp: usize) {
         assert!(self.current_op.is_none());
-        self.inv_timestamp = inv_timestamp;
+        self.call_timestamp = timestamp;
         self.current_op = Some(op);
     }
 
-    pub(crate) fn add_completion(&mut self, ret: Ret, ret_timestamp: usize) {
-        self.invocations.push(Invocation {
+    pub(crate) fn add_return(&mut self, ret: Ret, timestamp: usize) {
+        self.invocations.push(ParallelInvocation {
             thread_id: self.thread_id,
-            inv_timestamp: self.inv_timestamp,
-            ret_timestamp,
+            call_timestamp: self.call_timestamp,
+            return_timestamp: timestamp,
             op: self.current_op.take().unwrap(),
             ret,
         })
     }
 
-    pub(crate) fn invocations(self) -> Vec<Invocation<Op, Ret>> {
-        // assert!(self.current_op.is_none());
+    #[allow(dead_code)] // seems to be a bug because the method is used
+    pub(crate) fn history(self) -> ParallelHistory<Op, Ret> {
         self.invocations
     }
 }
@@ -64,14 +72,12 @@ pub trait Recorder {
 
 pub fn record_init_part<Op, Ret>() -> InitPartRecorder<Op, Ret> {
     InitPartRecorder {
-        internal_recorder: InternalRecorder::new(None),
-        timer: 0,
+        init_part: Vec::new(),
     }
 }
 
 pub struct InitPartRecorder<Op, Ret> {
-    internal_recorder: InternalRecorder<Op, Ret>,
-    timer: Timestamp,
+    init_part: History<Op, Ret>,
 }
 
 impl<Op, Ret> Recorder for InitPartRecorder<Op, Ret> {
@@ -79,38 +85,32 @@ impl<Op, Ret> Recorder for InitPartRecorder<Op, Ret> {
     type Ret = Ret;
 
     fn record(&mut self, op: Op, f: impl FnOnce() -> Ret) {
-        self.internal_recorder.add_invocation(op, self.timer);
-        self.timer += 1;
-
         let ret = f();
-
-        self.internal_recorder.add_completion(ret, self.timer);
-        self.timer += 1;
+        self.init_part.push(Invocation { op, ret })
     }
 }
 
 impl<Op, Ret> InitPartRecorder<Op, Ret> {
     pub fn record_parallel_part(self) -> ParallelPartRecorder<Op, Ret> {
         ParallelPartRecorder {
-            init_part: Mutex::new(self.internal_recorder.invocations()),
-            invocations: Mutex::new(Vec::new()),
+            init_part: Mutex::new(self.init_part),
+            parallel_part: Mutex::new(Vec::new()),
             next_thread_id: AtomicUsize::new(0),
-            timer: AtomicUsize::new(self.timer),
+            timer: AtomicUsize::new(0),
         }
     }
 
     pub fn record_post_part(self) -> PostPartRecorder<Op, Ret> {
         PostPartRecorder {
-            init_part: self.internal_recorder.invocations(),
+            init_part: self.init_part,
             parallel_part: Vec::new(),
-            internal_builder: InternalRecorder::new(None),
-            timer: self.timer,
+            post_part: Vec::new(),
         }
     }
 
     pub fn finish(self) -> Execution<Op, Ret> {
         Execution {
-            init_part: self.internal_recorder.invocations(),
+            init_part: self.init_part,
             parallel_part: Vec::new(),
             post_part: Vec::new(),
         }
@@ -119,7 +119,7 @@ impl<Op, Ret> InitPartRecorder<Op, Ret> {
 
 pub struct ParallelPartRecorder<Op, Ret> {
     init_part: Mutex<History<Op, Ret>>,
-    invocations: Mutex<History<Op, Ret>>,
+    parallel_part: Mutex<ParallelHistory<Op, Ret>>,
     next_thread_id: AtomicUsize,
     timer: AtomicUsize,
 }
@@ -129,24 +129,23 @@ impl<Op, Ret> ParallelPartRecorder<Op, Ret> {
         let thread_id = self.next_thread_id.load(Ordering::Relaxed);
         self.next_thread_id.fetch_add(1, Ordering::Relaxed);
         PerThreadRecorder {
-            internal_recorder: InternalRecorder::new(Some(thread_id)),
+            internal_recorder: InternalRecorder::new(thread_id),
             parent_builder: self,
         }
     }
 
     pub fn record_post_part(&self) -> PostPartRecorder<Op, Ret> {
         PostPartRecorder {
-            init_part: std::mem::replace(&mut self.init_part.lock().unwrap(), Vec::new()),
-            parallel_part: std::mem::replace(&mut self.invocations.lock().unwrap(), Vec::new()),
-            internal_builder: InternalRecorder::new(None),
-            timer: self.timer.load(Ordering::Relaxed),
+            init_part: std::mem::take(&mut self.init_part.lock().unwrap()),
+            parallel_part: std::mem::take(&mut self.parallel_part.lock().unwrap()),
+            post_part: Vec::new(),
         }
     }
 
     pub fn finish(self) -> Execution<Op, Ret> {
         Execution {
             init_part: self.init_part.into_inner().unwrap(),
-            parallel_part: self.invocations.into_inner().unwrap(),
+            parallel_part: self.parallel_part.into_inner().unwrap(),
             post_part: Vec::new(),
         }
     }
@@ -162,24 +161,22 @@ impl<'a, Op, Ret> Recorder for PerThreadRecorder<'a, Op, Ret> {
     type Ret = Ret;
 
     fn record(&mut self, op: Op, f: impl FnOnce() -> Ret) {
-        self.internal_recorder
-            .add_invocation(op, self.parent_builder.timer.load(Ordering::Relaxed));
-        self.parent_builder.timer.fetch_add(1, Ordering::Relaxed);
+        let call_timestamp = self.parent_builder.timer.fetch_add(1, Ordering::Relaxed);
+        self.internal_recorder.add_call(op, call_timestamp);
 
         let ret = f();
 
-        self.internal_recorder
-            .add_completion(ret, self.parent_builder.timer.load(Ordering::Relaxed));
-        self.parent_builder.timer.fetch_add(1, Ordering::Relaxed);
+        let return_timestamp = self.parent_builder.timer.fetch_add(1, Ordering::Relaxed);
+        self.internal_recorder.add_return(ret, return_timestamp);
     }
 }
 
 impl<'a, Op, Ret> Drop for PerThreadRecorder<'a, Op, Ret> {
     fn drop(&mut self) {
-        let invocations = std::mem::replace(&mut self.internal_recorder.invocations, Vec::new());
+        let invocations = std::mem::take(&mut self.internal_recorder.invocations);
 
         self.parent_builder
-            .invocations
+            .parallel_part
             .lock()
             .unwrap()
             .extend(invocations);
@@ -188,9 +185,8 @@ impl<'a, Op, Ret> Drop for PerThreadRecorder<'a, Op, Ret> {
 
 pub struct PostPartRecorder<Op, Ret> {
     init_part: History<Op, Ret>,
-    parallel_part: History<Op, Ret>,
-    internal_builder: InternalRecorder<Op, Ret>,
-    timer: usize,
+    parallel_part: ParallelHistory<Op, Ret>,
+    post_part: History<Op, Ret>,
 }
 
 impl<Op, Ret> Recorder for PostPartRecorder<Op, Ret> {
@@ -198,13 +194,8 @@ impl<Op, Ret> Recorder for PostPartRecorder<Op, Ret> {
     type Ret = Ret;
 
     fn record(&mut self, op: Op, f: impl FnOnce() -> Ret) {
-        self.internal_builder.add_invocation(op, self.timer);
-        self.timer += 1;
-
         let ret = f();
-
-        self.internal_builder.add_completion(ret, self.timer);
-        self.timer += 1;
+        self.post_part.push(Invocation { op, ret });
     }
 }
 
@@ -213,7 +204,7 @@ impl<Op, Ret> PostPartRecorder<Op, Ret> {
         Execution {
             init_part: self.init_part,
             parallel_part: self.parallel_part,
-            post_part: self.internal_builder.invocations,
+            post_part: self.post_part,
         }
     }
 }
@@ -221,7 +212,7 @@ impl<Op, Ret> PostPartRecorder<Op, Ret> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Execution<Op, Ret> {
     pub(crate) init_part: History<Op, Ret>,
-    pub(crate) parallel_part: History<Op, Ret>,
+    pub(crate) parallel_part: ParallelHistory<Op, Ret>,
     pub(crate) post_part: History<Op, Ret>,
 }
 
@@ -257,16 +248,10 @@ mod tests {
             execution.init_part,
             vec![
                 Invocation {
-                    thread_id: None,
-                    inv_timestamp: 0,
-                    ret_timestamp: 1,
                     op: Op::A,
                     ret: Ret::A,
                 },
                 Invocation {
-                    thread_id: None,
-                    inv_timestamp: 2,
-                    ret_timestamp: 3,
                     op: Op::B,
                     ret: Ret::B,
                 },
@@ -320,17 +305,17 @@ mod tests {
         assert_eq!(
             execution.parallel_part,
             vec![
-                Invocation {
-                    thread_id: Some(0),
-                    inv_timestamp: 2,
-                    ret_timestamp: 5,
+                ParallelInvocation {
+                    thread_id: 0,
+                    call_timestamp: 0,
+                    return_timestamp: 3,
                     op: Op::A,
                     ret: Ret::A,
                 },
-                Invocation {
-                    thread_id: Some(1),
-                    inv_timestamp: 3,
-                    ret_timestamp: 4,
+                ParallelInvocation {
+                    thread_id: 1,
+                    call_timestamp: 1,
+                    return_timestamp: 2,
                     op: Op::B,
                     ret: Ret::B,
                 },
@@ -340,12 +325,7 @@ mod tests {
 
     #[test]
     fn test_record_post() {
-        let mut recorder = record_init_part();
-
-        // to shift the timer
-        recorder.record(Op::A, || Ret::A);
-
-        let mut recorder = recorder.record_post_part();
+        let mut recorder = record_init_part().record_post_part();
 
         recorder.record(Op::A, || Ret::A);
         recorder.record(Op::B, || Ret::B);
@@ -356,16 +336,10 @@ mod tests {
             execution.post_part,
             vec![
                 Invocation {
-                    thread_id: None,
-                    inv_timestamp: 2,
-                    ret_timestamp: 3,
                     op: Op::A,
                     ret: Ret::A,
                 },
                 Invocation {
-                    thread_id: None,
-                    inv_timestamp: 4,
-                    ret_timestamp: 5,
                     op: Op::B,
                     ret: Ret::B,
                 },

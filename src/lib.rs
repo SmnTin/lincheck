@@ -86,9 +86,9 @@ where
 }
 
 pub struct Lincheck {
-    num_threads: usize,
-    num_iterations: usize,
-    num_ops: usize,
+    pub num_threads: usize,
+    pub num_iterations: usize,
+    pub num_ops: usize,
 }
 
 impl Default for Lincheck {
@@ -102,21 +102,6 @@ impl Default for Lincheck {
 }
 
 impl Lincheck {
-    pub fn num_threads(mut self, num_threads: usize) -> Self {
-        self.num_threads = num_threads;
-        self
-    }
-
-    pub fn num_iterations(mut self, num_iterations: usize) -> Self {
-        self.num_iterations = num_iterations;
-        self
-    }
-
-    pub fn num_operations(mut self, num_ops: usize) -> Self {
-        self.num_ops = num_ops;
-        self
-    }
-
     fn generate_scenario<Op: Arbitrary>(&self) -> Scenario<Op> {
         let mut scenario = Scenario {
             init_part: Vec::new(),

@@ -5,10 +5,10 @@ use crate::spec::*;
 
 pub struct LinearizabilityChecker<Seq: SequentialSpec> {
     execution: Execution<Seq::Op, Seq::Ret>,
-    hb_parallel: Vec<Vec<usize>>, // happens-before relation in parallel part
-    in_degree: Vec<usize>, // number of invocations that happen-before this invocation in parallel part
-    minimal_invocations: HashSet<usize>, // invocations that have in_degree == 0
-    linearized_parallel: Vec<usize>,
+    hb: Vec<Vec<InvocationId>>, // for each invocation in parallel part, a list of invocations which it happens-before
+    in_degree: Vec<usize>, // for each invocation in parallel part, number of invocations that happen-before
+    minimal_invocations: HashSet<InvocationId>, // invocations in parallel part that have in_degree == 0
+    linearized_parallel: Vec<InvocationId>,
     seq_spec: Seq,
 }
 
@@ -24,7 +24,7 @@ where
 
         for (inv_id_a, inv_a) in parallel_part.iter().enumerate() {
             for (inv_id_b, inv_b) in parallel_part.iter().enumerate() {
-                if inv_a.ret_timestamp < inv_b.inv_timestamp {
+                if inv_a.return_timestamp < inv_b.call_timestamp {
                     hb_parallel[inv_id_a].push(inv_id_b);
                 }
             }
@@ -46,7 +46,7 @@ where
 
         let mut checker = LinearizabilityChecker {
             execution,
-            hb_parallel,
+            hb: hb_parallel,
             in_degree,
             minimal_invocations,
             linearized_parallel: Vec::new(),
@@ -79,7 +79,7 @@ where
 
             self.undo(inv_id);
             self.rebuild_seq_spec();
-            return false;
+            false
         })
     }
 
@@ -93,7 +93,7 @@ where
     fn call(&mut self, inv_id: usize) {
         self.linearized_parallel.push(inv_id);
         self.minimal_invocations.remove(&inv_id);
-        for &next_inv_id in self.hb_parallel[inv_id].iter() {
+        for &next_inv_id in self.hb[inv_id].iter() {
             self.in_degree[next_inv_id] -= 1;
             if self.in_degree[next_inv_id] == 0 {
                 self.minimal_invocations.insert(next_inv_id);
@@ -114,7 +114,7 @@ where
     }
 
     fn undo(&mut self, inv_id: usize) {
-        for &next_inv_id in self.hb_parallel[inv_id].iter() {
+        for &next_inv_id in self.hb[inv_id].iter() {
             if self.in_degree[next_inv_id] == 0 {
                 self.minimal_invocations.remove(&next_inv_id);
             }
@@ -189,16 +189,16 @@ mod tests {
         init_recorder.record(Op::Push(2), || Ret::Push);
         let init_part = init_recorder.finish().init_part;
 
-        let mut recorder_a = InternalRecorder::new(Some(0));
-        let mut recorder_b = InternalRecorder::new(Some(1));
-        recorder_a.add_invocation(Op::Pop, 4);
-        recorder_b.add_invocation(Op::Pop, 5);
-        recorder_a.add_completion(Ret::Pop(Some(2)), 6);
-        recorder_b.add_completion(Ret::Pop(Some(1)), 7);
+        let mut recorder_a = InternalRecorder::new(0);
+        let mut recorder_b = InternalRecorder::new(1);
+        recorder_a.add_call(Op::Pop, 4);
+        recorder_b.add_call(Op::Pop, 5);
+        recorder_a.add_return(Ret::Pop(Some(2)), 6);
+        recorder_b.add_return(Ret::Pop(Some(1)), 7);
 
         let execution = Execution {
             init_part,
-            parallel_part: [recorder_a.invocations(), recorder_b.invocations()].concat(),
+            parallel_part: [recorder_a.history(), recorder_b.history()].concat(),
             post_part: Vec::new(),
         };
 
@@ -209,19 +209,19 @@ mod tests {
 
     #[test]
     fn parallel_part_does_not_violate_happens_before() {
-        let mut recorder_a = InternalRecorder::new(Some(0));
-        let mut recorder_b = InternalRecorder::new(Some(1));
-        recorder_a.add_invocation(Op::Pop, 4);
-        recorder_b.add_invocation(Op::Pop, 5);
-        recorder_a.add_completion(Ret::Pop(Some(1)), 6);
+        let mut recorder_a = InternalRecorder::new(0);
+        let mut recorder_b = InternalRecorder::new(1);
+        recorder_a.add_call(Op::Pop, 4);
+        recorder_b.add_call(Op::Pop, 5);
+        recorder_a.add_return(Ret::Pop(Some(1)), 6);
 
-        recorder_a.add_invocation(Op::Push(1), 7);
-        recorder_b.add_completion(Ret::Pop(None), 8);
-        recorder_a.add_completion(Ret::Push, 9);
+        recorder_a.add_call(Op::Push(1), 7);
+        recorder_b.add_return(Ret::Pop(None), 8);
+        recorder_a.add_return(Ret::Push, 9);
 
         let execution = Execution {
             init_part: Vec::new(),
-            parallel_part: [recorder_a.invocations(), recorder_b.invocations()].concat(),
+            parallel_part: [recorder_a.history(), recorder_b.history()].concat(),
             post_part: Vec::new(),
         };
 
