@@ -24,6 +24,13 @@ pub(crate) struct ParallelInvocation<Op, Ret> {
 pub(crate) type History<Op, Ret> = Vec<Invocation<Op, Ret>>;
 pub(crate) type ParallelHistory<Op, Ret> = Vec<ParallelInvocation<Op, Ret>>;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Execution<Op, Ret> {
+    pub(crate) init_part: History<Op, Ret>,
+    pub(crate) parallel_part: ParallelHistory<Op, Ret>,
+    pub(crate) post_part: History<Op, Ret>,
+}
+
 pub(crate) struct InternalRecorder<Op, Ret> {
     thread_id: ThreadId,
     invocations: ParallelHistory<Op, Ret>,
@@ -76,6 +83,18 @@ pub fn record_init_part<Op, Ret>() -> InitPartRecorder<Op, Ret> {
     }
 }
 
+pub fn record_parallel_part<Op, Ret>() -> ParallelPartRecorder<Op, Ret> {
+    ParallelPartRecorder::new(Vec::new())
+}
+
+pub fn record_post_part<Op, Ret>() -> PostPartRecorder<Op, Ret> {
+    PostPartRecorder {
+        init_part: Vec::new(),
+        parallel_part: Vec::new(),
+        post_part: Vec::new(),
+    }
+}
+
 pub struct InitPartRecorder<Op, Ret> {
     init_part: History<Op, Ret>,
 }
@@ -92,12 +111,7 @@ impl<Op, Ret> Recorder for InitPartRecorder<Op, Ret> {
 
 impl<Op, Ret> InitPartRecorder<Op, Ret> {
     pub fn record_parallel_part(self) -> ParallelPartRecorder<Op, Ret> {
-        ParallelPartRecorder {
-            init_part: Mutex::new(self.init_part),
-            parallel_part: Mutex::new(Vec::new()),
-            next_thread_id: AtomicUsize::new(0),
-            timer: AtomicUsize::new(0),
-        }
+        ParallelPartRecorder::new(self.init_part)
     }
 
     pub fn record_post_part(self) -> PostPartRecorder<Op, Ret> {
@@ -125,6 +139,15 @@ pub struct ParallelPartRecorder<Op, Ret> {
 }
 
 impl<Op, Ret> ParallelPartRecorder<Op, Ret> {
+    fn new(init_part: History<Op, Ret>) -> Self {
+        ParallelPartRecorder {
+            init_part: Mutex::new(init_part),
+            parallel_part: Mutex::new(Vec::new()),
+            next_thread_id: AtomicUsize::new(0),
+            timer: AtomicUsize::new(0),
+        }
+    }
+
     pub fn record_thread(&self) -> PerThreadRecorder<'_, Op, Ret> {
         let thread_id = self.next_thread_id.load(Ordering::Relaxed);
         self.next_thread_id.fetch_add(1, Ordering::Relaxed);
@@ -207,13 +230,6 @@ impl<Op, Ret> PostPartRecorder<Op, Ret> {
             post_part: self.post_part,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Execution<Op, Ret> {
-    pub(crate) init_part: History<Op, Ret>,
-    pub(crate) parallel_part: ParallelHistory<Op, Ret>,
-    pub(crate) post_part: History<Op, Ret>,
 }
 
 #[cfg(test)]

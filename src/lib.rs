@@ -1,5 +1,5 @@
 use loom::thread;
-use quickcheck::{Arbitrary, Gen};
+use quickcheck::{Arbitrary, Gen}; // TODO: use some other crate for this
 use std::{fmt::Debug, rc::Rc};
 
 mod checker;
