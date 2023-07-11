@@ -95,7 +95,7 @@ impl Default for Lincheck {
     fn default() -> Self {
         Self {
             num_threads: 2,
-            num_iterations: 5,
+            num_iterations: 100,
             num_ops: 4,
         }
     }
