@@ -24,15 +24,6 @@ impl<T: Arbitrary> Arbitrary for Op<T> {
     }
 }
 
-impl<T: Arbitrary> Arbitrary for Ret<T> {
-    fn arbitrary(g: &mut Gen) -> Self {
-        match bool::arbitrary(g) {
-            true => Ret::Push,
-            false => Ret::Pop(Option::arbitrary(g)),
-        }
-    }
-}
-
 struct SequentialStack<T> {
     stack: Vec<T>,
 }
