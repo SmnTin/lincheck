@@ -31,6 +31,19 @@ pub struct Execution<Op, Ret> {
     pub(crate) post_part: History<Op, Ret>,
 }
 
+impl<Op, Ret> Execution<Op, Ret> {
+    pub(crate) fn get_thread_parts(&self) -> Vec<Vec<&ParallelInvocation<Op, Ret>>> {
+        let mut thread_parts = Vec::new();
+        for inv in &self.parallel_part {
+            if thread_parts.len() <= inv.thread_id {
+                thread_parts.resize_with(inv.thread_id + 1, Vec::new);
+            }
+            thread_parts[inv.thread_id].push(inv);
+        }
+        thread_parts
+    }
+}
+
 pub(crate) struct InternalRecorder<Op, Ret> {
     thread_id: ThreadId,
     invocations: ParallelHistory<Op, Ret>,
@@ -43,6 +56,15 @@ impl<Op, Ret> InternalRecorder<Op, Ret> {
         InternalRecorder {
             thread_id,
             invocations: Vec::new(),
+            current_op: None,
+            call_timestamp: 0,
+        }
+    }
+
+    pub(crate) fn with_capacity(thread_id: ThreadId, capacity: usize) -> Self {
+        InternalRecorder {
+            thread_id,
+            invocations: Vec::with_capacity(capacity),
             current_op: None,
             call_timestamp: 0,
         }
@@ -95,6 +117,30 @@ pub fn record_post_part<Op, Ret>() -> PostPartRecorder<Op, Ret> {
     }
 }
 
+pub fn record_init_part_with_capacity<Op, Ret>(
+    init_part_capacity: usize,
+) -> InitPartRecorder<Op, Ret> {
+    InitPartRecorder {
+        init_part: Vec::with_capacity(init_part_capacity),
+    }
+}
+
+pub fn record_parallel_part_with_capacity<Op, Ret>(
+    parallel_part_capacity: usize,
+) -> ParallelPartRecorder<Op, Ret> {
+    ParallelPartRecorder::with_capacity(Vec::new(), parallel_part_capacity)
+}
+
+pub fn record_post_part_with_capacity<Op, Ret>(
+    post_part_capacity: usize,
+) -> PostPartRecorder<Op, Ret> {
+    PostPartRecorder {
+        init_part: Vec::new(),
+        parallel_part: Vec::new(),
+        post_part: Vec::with_capacity(post_part_capacity),
+    }
+}
+
 pub struct InitPartRecorder<Op, Ret> {
     init_part: History<Op, Ret>,
 }
@@ -119,6 +165,24 @@ impl<Op, Ret> InitPartRecorder<Op, Ret> {
             init_part: self.init_part,
             parallel_part: Vec::new(),
             post_part: Vec::new(),
+        }
+    }
+
+    pub fn record_parallel_part_with_capacity(
+        self,
+        parallel_part_capacity: usize,
+    ) -> ParallelPartRecorder<Op, Ret> {
+        ParallelPartRecorder::with_capacity(self.init_part, parallel_part_capacity)
+    }
+
+    pub fn record_post_part_with_capacity(
+        self,
+        post_part_capacity: usize,
+    ) -> PostPartRecorder<Op, Ret> {
+        PostPartRecorder {
+            init_part: self.init_part,
+            parallel_part: Vec::new(),
+            post_part: Vec::with_capacity(post_part_capacity),
         }
     }
 
@@ -148,6 +212,15 @@ impl<Op, Ret> ParallelPartRecorder<Op, Ret> {
         }
     }
 
+    fn with_capacity(init_part: History<Op, Ret>, parallel_part_capacity: usize) -> Self {
+        ParallelPartRecorder {
+            init_part: Mutex::new(init_part),
+            parallel_part: Mutex::new(Vec::with_capacity(parallel_part_capacity)),
+            next_thread_id: AtomicUsize::new(0),
+            timer: AtomicUsize::new(0),
+        }
+    }
+
     pub fn record_thread(&self) -> PerThreadRecorder<'_, Op, Ret> {
         let thread_id = self.next_thread_id.load(Ordering::Relaxed);
         self.next_thread_id.fetch_add(1, Ordering::Relaxed);
@@ -157,11 +230,34 @@ impl<Op, Ret> ParallelPartRecorder<Op, Ret> {
         }
     }
 
+    pub fn record_thread_with_capacity(
+        &self,
+        thread_part_capacity: usize,
+    ) -> PerThreadRecorder<'_, Op, Ret> {
+        let thread_id = self.next_thread_id.load(Ordering::Relaxed);
+        self.next_thread_id.fetch_add(1, Ordering::Relaxed);
+        PerThreadRecorder {
+            internal_recorder: InternalRecorder::with_capacity(thread_id, thread_part_capacity),
+            parent_builder: self,
+        }
+    }
+
     pub fn record_post_part(&self) -> PostPartRecorder<Op, Ret> {
         PostPartRecorder {
             init_part: std::mem::take(&mut self.init_part.lock().unwrap()),
             parallel_part: std::mem::take(&mut self.parallel_part.lock().unwrap()),
             post_part: Vec::new(),
+        }
+    }
+
+    pub fn record_post_part_with_capacity(
+        &self,
+        post_part_capacity: usize,
+    ) -> PostPartRecorder<Op, Ret> {
+        PostPartRecorder {
+            init_part: std::mem::take(&mut self.init_part.lock().unwrap()),
+            parallel_part: std::mem::take(&mut self.parallel_part.lock().unwrap()),
+            post_part: Vec::with_capacity(post_part_capacity),
         }
     }
 

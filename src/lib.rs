@@ -40,12 +40,13 @@ where
 {
     let conc = Rc::new(Conc::new());
 
-    let mut recorder = recorder::record_init_part();
+    let mut recorder: _ = recorder::record_init_part_with_capacity(scenario.init_part.len());
 
     // init part
     execute_ops(&*conc, &mut recorder, scenario.init_part);
 
-    let recorder = Rc::new(recorder.record_parallel_part());
+    let total_parallel_ops = scenario.parallel_part.iter().map(|ops| ops.len()).sum();
+    let recorder: _ = Rc::new(recorder.record_parallel_part_with_capacity(total_parallel_ops));
 
     // parallel part
     let handles: Vec<_> = scenario
@@ -56,7 +57,7 @@ where
             let recorder = recorder.clone();
 
             thread::spawn(move || {
-                let mut recorder = recorder.record_thread();
+                let mut recorder: _ = recorder.record_thread_with_capacity(thread_ops.len());
 
                 execute_ops(&*conc, &mut recorder, thread_ops);
             })
@@ -68,7 +69,7 @@ where
     }
 
     // post part
-    let mut recorder = recorder.record_post_part();
+    let mut recorder: _ = recorder.record_post_part_with_capacity(scenario.post_part.len());
     execute_ops(&*conc, &mut recorder, scenario.post_part);
 
     recorder.finish()
