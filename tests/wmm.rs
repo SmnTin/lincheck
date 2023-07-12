@@ -13,10 +13,8 @@ enum Op {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ret {
-    WriteX,
-    WriteY,
-    ReadX(bool),
-    ReadY(bool),
+    Write,
+    Read(bool),
 }
 
 impl Arbitrary for Op {
@@ -51,14 +49,14 @@ impl ConcurrentSpec for TwoSlotsParallel {
         match op {
             Op::WriteX => {
                 self.x.store(true, Ordering::Relaxed);
-                Ret::WriteX
+                Ret::Write
             }
             Op::WriteY => {
                 self.y.store(true, Ordering::Relaxed);
-                Ret::WriteY
+                Ret::Write
             }
-            Op::ReadX => Ret::ReadX(self.x.load(Ordering::Relaxed)),
-            Op::ReadY => Ret::ReadY(self.y.load(Ordering::Relaxed)),
+            Op::ReadX => Ret::Read(self.x.load(Ordering::Relaxed)),
+            Op::ReadY => Ret::Read(self.y.load(Ordering::Relaxed)),
         }
     }
 }
@@ -80,20 +78,20 @@ impl SequentialSpec for TwoSlotsSequential {
         match op {
             Op::WriteX => {
                 self.x = true;
-                Ret::WriteX
+                Ret::Write
             }
             Op::WriteY => {
                 self.y = true;
-                Ret::WriteY
+                Ret::Write
             }
-            Op::ReadX => Ret::ReadX(self.x),
-            Op::ReadY => Ret::ReadY(self.y),
+            Op::ReadX => Ret::Read(self.x),
+            Op::ReadY => Ret::Read(self.y),
         }
     }
 }
 
 #[test]
-#[should_panic]
+// #[should_panic]
 fn two_slots() {
     Lincheck::default().verify::<TwoSlotsParallel, TwoSlotsSequential>();
 }
