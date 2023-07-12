@@ -3,6 +3,7 @@ use quickcheck::{Arbitrary, Gen}; // TODO: use some other crate for this
 use std::{fmt::Debug, rc::Rc};
 
 mod checker;
+mod fmt;
 mod recorder;
 mod spec;
 
@@ -27,7 +28,7 @@ where
     loom::model(move || {
         let execution = execute_scenario::<Conc>(scenario.clone());
         if !LinearizabilityChecker::<Seq>::check(&execution) {
-            panic!("Non-linearazable execution: {:?}", execution);
+            panic!("Non-linearazable execution: {}", execution);
         }
     });
 }
