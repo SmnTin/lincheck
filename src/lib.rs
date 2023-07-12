@@ -22,12 +22,12 @@ where
     Conc: ConcurrentSpec + Send + Sync + 'static,
     Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
     Conc::Op: Send + Sync + Clone + Debug + 'static,
-    Conc::Ret: PartialEq,
+    Conc::Ret: PartialEq + Debug,
 {
     loom::model(move || {
         let execution = execute_scenario::<Conc>(scenario.clone());
-        if !LinearizabilityChecker::<Seq>::check(execution) {
-            panic!("scenario failed: {:?}", scenario);
+        if !LinearizabilityChecker::<Seq>::check(&execution) {
+            panic!("Non-linearazable execution: {:?}", execution);
         }
     });
 }
@@ -137,7 +137,7 @@ impl Lincheck {
         Conc: ConcurrentSpec + Send + Sync + 'static,
         Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
         Conc::Op: Send + Sync + Clone + Arbitrary + Debug + 'static,
-        Conc::Ret: PartialEq,
+        Conc::Ret: PartialEq + Debug,
     {
         for _ in 0..self.num_iterations {
             check_scenario::<Conc, Seq>(self.generate_scenario::<Conc::Op>());

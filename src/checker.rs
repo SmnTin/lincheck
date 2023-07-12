@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use crate::recorder::*;
 use crate::spec::*;
 
-pub struct LinearizabilityChecker<Seq: SequentialSpec> {
-    execution: Execution<Seq::Op, Seq::Ret>,
+pub struct LinearizabilityChecker<'e, Seq: SequentialSpec> {
+    execution: &'e Execution<Seq::Op, Seq::Ret>,
     hb: Vec<Vec<InvocationId>>, // for each invocation in parallel part, a list of invocations which it happens-before
     in_degree: Vec<usize>, // for each invocation in parallel part, number of invocations that happen-before
     minimal_invocations: HashSet<InvocationId>, // invocations in parallel part that have in_degree == 0
@@ -12,13 +12,13 @@ pub struct LinearizabilityChecker<Seq: SequentialSpec> {
     seq_spec: Seq,
 }
 
-impl<Seq> LinearizabilityChecker<Seq>
+impl<'e, Seq> LinearizabilityChecker<'e, Seq>
 where
     Seq: SequentialSpec,
     Seq::Op: Clone,
     Seq::Ret: PartialEq,
 {
-    pub fn check(execution: Execution<Seq::Op, Seq::Ret>) -> bool {
+    pub fn check(execution: &'e Execution<Seq::Op, Seq::Ret>) -> bool {
         let parallel_part = &execution.parallel_part;
         let mut hb_parallel = vec![vec![]; parallel_part.len()];
 
@@ -178,7 +178,7 @@ mod tests {
         let execution = recorder.finish();
 
         assert!(LinearizabilityChecker::<SequentialStack<i32>>::check(
-            execution
+            &execution
         ));
     }
 
@@ -203,7 +203,7 @@ mod tests {
         };
 
         assert!(LinearizabilityChecker::<SequentialStack<i32>>::check(
-            execution
+            &execution
         ));
     }
 
@@ -226,7 +226,7 @@ mod tests {
         };
 
         assert!(!LinearizabilityChecker::<SequentialStack<i32>>::check(
-            execution
+            &execution
         ));
     }
 }
