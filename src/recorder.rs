@@ -1,48 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-pub(crate) type Timestamp = usize;
-pub(crate) type ThreadId = usize;
-pub(crate) type InvocationId = usize;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Invocation<Op, Ret> {
-    pub(crate) op: Op,
-    pub(crate) ret: Ret,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ParallelInvocation<Op, Ret> {
-    pub(crate) thread_id: ThreadId,
-    pub(crate) call_timestamp: Timestamp,
-    pub(crate) return_timestamp: Timestamp,
-
-    pub(crate) op: Op,
-    pub(crate) ret: Ret,
-}
-
-pub(crate) type History<Op, Ret> = Vec<Invocation<Op, Ret>>;
-pub(crate) type ParallelHistory<Op, Ret> = Vec<ParallelInvocation<Op, Ret>>;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Execution<Op, Ret> {
-    pub(crate) init_part: History<Op, Ret>,
-    pub(crate) parallel_part: ParallelHistory<Op, Ret>,
-    pub(crate) post_part: History<Op, Ret>,
-}
-
-impl<Op, Ret> Execution<Op, Ret> {
-    pub(crate) fn get_thread_parts(&self) -> Vec<Vec<&ParallelInvocation<Op, Ret>>> {
-        let mut thread_parts = Vec::new();
-        for inv in &self.parallel_part {
-            if thread_parts.len() <= inv.thread_id {
-                thread_parts.resize_with(inv.thread_id + 1, Vec::new);
-            }
-            thread_parts[inv.thread_id].push(inv);
-        }
-        thread_parts
-    }
-}
+use crate::execution::*;
 
 pub(crate) struct InternalRecorder<Op, Ret> {
     thread_id: ThreadId,
@@ -55,7 +14,7 @@ impl<Op, Ret> InternalRecorder<Op, Ret> {
     pub(crate) fn new(thread_id: ThreadId) -> Self {
         InternalRecorder {
             thread_id,
-            invocations: Vec::new(),
+            invocations: ParallelHistory::new(),
             current_op: None,
             call_timestamp: 0,
         }
@@ -64,7 +23,7 @@ impl<Op, Ret> InternalRecorder<Op, Ret> {
     pub(crate) fn with_capacity(thread_id: ThreadId, capacity: usize) -> Self {
         InternalRecorder {
             thread_id,
-            invocations: Vec::with_capacity(capacity),
+            invocations: ParallelHistory::with_capacity(capacity),
             current_op: None,
             call_timestamp: 0,
         }
@@ -101,19 +60,19 @@ pub trait Recorder {
 
 pub fn record_init_part<Op, Ret>() -> InitPartRecorder<Op, Ret> {
     InitPartRecorder {
-        init_part: Vec::new(),
+        init_part: History::new(),
     }
 }
 
 pub fn record_parallel_part<Op, Ret>() -> ParallelPartRecorder<Op, Ret> {
-    ParallelPartRecorder::new(Vec::new())
+    ParallelPartRecorder::new(History::new())
 }
 
 pub fn record_post_part<Op, Ret>() -> PostPartRecorder<Op, Ret> {
     PostPartRecorder {
-        init_part: Vec::new(),
-        parallel_part: Vec::new(),
-        post_part: Vec::new(),
+        init_part: History::new(),
+        parallel_part: ParallelHistory::new(),
+        post_part: History::new(),
     }
 }
 
@@ -121,23 +80,23 @@ pub fn record_init_part_with_capacity<Op, Ret>(
     init_part_capacity: usize,
 ) -> InitPartRecorder<Op, Ret> {
     InitPartRecorder {
-        init_part: Vec::with_capacity(init_part_capacity),
+        init_part: History::with_capacity(init_part_capacity),
     }
 }
 
 pub fn record_parallel_part_with_capacity<Op, Ret>(
     parallel_part_capacity: usize,
 ) -> ParallelPartRecorder<Op, Ret> {
-    ParallelPartRecorder::with_capacity(Vec::new(), parallel_part_capacity)
+    ParallelPartRecorder::with_capacity(History::new(), parallel_part_capacity)
 }
 
 pub fn record_post_part_with_capacity<Op, Ret>(
     post_part_capacity: usize,
 ) -> PostPartRecorder<Op, Ret> {
     PostPartRecorder {
-        init_part: Vec::new(),
-        parallel_part: Vec::new(),
-        post_part: Vec::with_capacity(post_part_capacity),
+        init_part: History::new(),
+        parallel_part: ParallelHistory::new(),
+        post_part: History::with_capacity(post_part_capacity),
     }
 }
 
@@ -163,8 +122,8 @@ impl<Op, Ret> InitPartRecorder<Op, Ret> {
     pub fn record_post_part(self) -> PostPartRecorder<Op, Ret> {
         PostPartRecorder {
             init_part: self.init_part,
-            parallel_part: Vec::new(),
-            post_part: Vec::new(),
+            parallel_part: ParallelHistory::new(),
+            post_part: History::new(),
         }
     }
 
@@ -181,16 +140,16 @@ impl<Op, Ret> InitPartRecorder<Op, Ret> {
     ) -> PostPartRecorder<Op, Ret> {
         PostPartRecorder {
             init_part: self.init_part,
-            parallel_part: Vec::new(),
-            post_part: Vec::with_capacity(post_part_capacity),
+            parallel_part: ParallelHistory::new(),
+            post_part: History::with_capacity(post_part_capacity),
         }
     }
 
     pub fn finish(self) -> Execution<Op, Ret> {
         Execution {
             init_part: self.init_part,
-            parallel_part: Vec::new(),
-            post_part: Vec::new(),
+            parallel_part: ParallelHistory::new(),
+            post_part: History::new(),
         }
     }
 }
@@ -206,7 +165,7 @@ impl<Op, Ret> ParallelPartRecorder<Op, Ret> {
     fn new(init_part: History<Op, Ret>) -> Self {
         ParallelPartRecorder {
             init_part: Mutex::new(init_part),
-            parallel_part: Mutex::new(Vec::new()),
+            parallel_part: Mutex::new(ParallelHistory::new()),
             next_thread_id: AtomicUsize::new(0),
             timer: AtomicUsize::new(0),
         }
@@ -215,7 +174,7 @@ impl<Op, Ret> ParallelPartRecorder<Op, Ret> {
     fn with_capacity(init_part: History<Op, Ret>, parallel_part_capacity: usize) -> Self {
         ParallelPartRecorder {
             init_part: Mutex::new(init_part),
-            parallel_part: Mutex::new(Vec::with_capacity(parallel_part_capacity)),
+            parallel_part: Mutex::new(ParallelHistory::with_capacity(parallel_part_capacity)),
             next_thread_id: AtomicUsize::new(0),
             timer: AtomicUsize::new(0),
         }
@@ -246,7 +205,7 @@ impl<Op, Ret> ParallelPartRecorder<Op, Ret> {
         PostPartRecorder {
             init_part: std::mem::take(&mut self.init_part.lock().unwrap()),
             parallel_part: std::mem::take(&mut self.parallel_part.lock().unwrap()),
-            post_part: Vec::new(),
+            post_part: History::new(),
         }
     }
 
@@ -257,7 +216,7 @@ impl<Op, Ret> ParallelPartRecorder<Op, Ret> {
         PostPartRecorder {
             init_part: std::mem::take(&mut self.init_part.lock().unwrap()),
             parallel_part: std::mem::take(&mut self.parallel_part.lock().unwrap()),
-            post_part: Vec::with_capacity(post_part_capacity),
+            post_part: History::with_capacity(post_part_capacity),
         }
     }
 
@@ -265,7 +224,7 @@ impl<Op, Ret> ParallelPartRecorder<Op, Ret> {
         Execution {
             init_part: self.init_part.into_inner().unwrap(),
             parallel_part: self.parallel_part.into_inner().unwrap(),
-            post_part: Vec::new(),
+            post_part: History::new(),
         }
     }
 }
@@ -330,6 +289,7 @@ impl<Op, Ret> PostPartRecorder<Op, Ret> {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
     use std::sync::atomic::AtomicU32;
     use std::thread;
 
@@ -357,8 +317,8 @@ mod tests {
         let execution = recorder.finish();
 
         assert_eq!(
-            execution.init_part,
-            vec![
+            execution.init_part.deref(),
+            &vec![
                 Invocation {
                     op: Op::A,
                     ret: Ret::A,
@@ -415,8 +375,8 @@ mod tests {
         execution.parallel_part.sort_by_key(|inv| inv.thread_id);
 
         assert_eq!(
-            execution.parallel_part,
-            vec![
+            execution.parallel_part.deref(),
+            &vec![
                 ParallelInvocation {
                     thread_id: 0,
                     call_timestamp: 0,
@@ -445,8 +405,8 @@ mod tests {
         let execution = recorder.finish();
 
         assert_eq!(
-            execution.post_part,
-            vec![
+            execution.post_part.deref(),
+            &vec![
                 Invocation {
                     op: Op::A,
                     ret: Ret::A,

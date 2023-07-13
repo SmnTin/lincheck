@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::recorder::*;
+use crate::execution::*;
 use crate::spec::*;
 
 pub struct LinearizabilityChecker<'e, Seq: SequentialSpec> {
@@ -128,6 +128,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::recorder::*;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Op<T> {
@@ -198,8 +199,13 @@ mod tests {
 
         let execution = Execution {
             init_part,
-            parallel_part: [recorder_a.history(), recorder_b.history()].concat(),
-            post_part: Vec::new(),
+            parallel_part: [
+                recorder_a.history().into_inner(),
+                recorder_b.history().into_inner(),
+            ]
+            .concat()
+            .into(),
+            post_part: History::new(),
         };
 
         assert!(LinearizabilityChecker::<SequentialStack<i32>>::check(
@@ -220,9 +226,14 @@ mod tests {
         recorder_a.add_return(Ret::Push, 9);
 
         let execution = Execution {
-            init_part: Vec::new(),
-            parallel_part: [recorder_a.history(), recorder_b.history()].concat(),
-            post_part: Vec::new(),
+            init_part: History::new(),
+            parallel_part: [
+                recorder_a.history().into_inner(),
+                recorder_b.history().into_inner(),
+            ]
+            .concat()
+            .into(),
+            post_part: History::new(),
         };
 
         assert!(!LinearizabilityChecker::<SequentialStack<i32>>::check(
