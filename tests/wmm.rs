@@ -1,7 +1,7 @@
 use lincheck::{ConcurrentSpec, Lincheck, SequentialSpec};
 
 use loom::sync::atomic::{AtomicBool, Ordering};
-use quickcheck::{Arbitrary, Gen};
+use proptest::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Op {
@@ -18,14 +18,17 @@ enum Ret {
 }
 
 impl Arbitrary for Op {
-    fn arbitrary(g: &mut Gen) -> Self {
-        match u8::arbitrary(g) % 4 {
-            0 => Op::WriteX,
-            1 => Op::WriteY,
-            2 => Op::ReadX,
-            3 => Op::ReadY,
-            _ => unreachable!(),
-        }
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            Just(Op::WriteX),
+            Just(Op::WriteY),
+            Just(Op::ReadX),
+            Just(Op::ReadY),
+        ]
+        .boxed()
     }
 }
 
@@ -93,5 +96,5 @@ impl SequentialSpec for TwoSlotsSequential {
 #[test]
 // #[should_panic]
 fn two_slots() {
-    Lincheck::default().verify::<TwoSlotsParallel, TwoSlotsSequential>();
+    Lincheck::default().verify_or_panic::<TwoSlotsParallel, TwoSlotsSequential>()
 }

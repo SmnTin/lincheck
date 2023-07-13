@@ -1,6 +1,10 @@
 use loom::thread;
-use quickcheck::{Arbitrary, Gen}; // TODO: use some other crate for this
-use std::{fmt::Debug, rc::Rc};
+use proptest::{
+    prelude::*,
+    test_runner::{TestError, TestRunner},
+};
+use std::sync::{Arc, Mutex};
+use std::{fmt::Debug, panic, rc::Rc};
 
 mod checker;
 mod execution;
@@ -25,12 +29,12 @@ where
     Conc: ConcurrentSpec + Send + Sync + 'static,
     Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
     Conc::Op: Send + Sync + Clone + Debug + 'static,
-    Conc::Ret: PartialEq + Debug,
+    Conc::Ret: PartialEq + Debug + Send,
 {
     loom::model(move || {
         let execution = execute_scenario::<Conc>(scenario.clone());
         if !LinearizabilityChecker::<Seq>::check(&execution) {
-            panic!("Non-linearizable execution: \n\n{}", execution);
+            panic::panic_any(execution);
         }
     });
 }
@@ -48,7 +52,7 @@ where
     // init part
     execute_ops(&*conc, &mut recorder, scenario.init_part);
 
-    let total_parallel_ops = scenario.parallel_part.iter().map(|ops| ops.len()).sum();
+    let total_parallel_ops = scenario.parallel_part.iter().map(Vec::len).sum();
     let recorder = Rc::new(recorder.record_parallel_part_with_capacity(total_parallel_ops));
 
     // parallel part
@@ -89,6 +93,7 @@ where
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Lincheck {
     pub num_threads: usize,
     pub num_iterations: usize,
@@ -105,46 +110,80 @@ impl Default for Lincheck {
     }
 }
 
-impl Lincheck {
-    fn generate_scenario<Op: Arbitrary>(&self) -> Scenario<Op> {
-        let mut scenario = Scenario {
-            init_part: Vec::new(),
-            parallel_part: Vec::new(),
-            post_part: Vec::new(),
-        };
+impl<Op: Arbitrary + 'static> Arbitrary for Scenario<Op> {
+    type Parameters = Lincheck;
+    type Strategy = BoxedStrategy<Self>;
 
-        let mut gen = Gen::new(50);
+    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+        let ops_strategy = || prop::collection::vec(any::<Op>(), 1..=args.num_ops);
+        let init_strategy = ops_strategy();
+        let post_strategy = ops_strategy();
 
-        for _ in 0..self.num_ops {
-            scenario.init_part.push(Op::arbitrary(&mut gen));
-        }
+        let parallel_strategy = prop::collection::vec(ops_strategy(), 1..=args.num_threads);
 
-        for _ in 0..self.num_threads {
-            let mut ops = Vec::new();
-
-            for _ in 0..self.num_ops {
-                ops.push(Op::arbitrary(&mut gen));
-            }
-
-            scenario.parallel_part.push(ops);
-        }
-
-        for _ in 0..self.num_ops {
-            scenario.post_part.push(Op::arbitrary(&mut gen));
-        }
-
-        scenario
+        (init_strategy, parallel_strategy, post_strategy)
+            .prop_map(|(init_part, parallel_part, post_part)| Self {
+                init_part,
+                parallel_part,
+                post_part,
+            })
+            .boxed()
     }
+}
 
-    pub fn verify<Conc, Seq>(&self)
+impl Lincheck {
+    pub fn verify<Conc, Seq>(&self) -> Result<(), Execution<Conc::Op, Conc::Ret>>
     where
         Conc: ConcurrentSpec + Send + Sync + 'static,
         Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
         Conc::Op: Send + Sync + Clone + Arbitrary + Debug + 'static,
-        Conc::Ret: PartialEq + Debug,
+        Conc::Ret: PartialEq + Debug + Send + Clone,
     {
-        for _ in 0..self.num_iterations {
-            check_scenario::<Conc, Seq>(self.generate_scenario::<Conc::Op>());
+        let failed_execution = Arc::new(Mutex::new(Execution::<Conc::Op, Conc::Ret>::default()));
+
+        let old_hook = panic::take_hook();
+        panic::set_hook({
+            let failed_execution = failed_execution.clone();
+            Box::new(move |panic_info| {
+                let execution = panic_info
+                    .payload()
+                    .downcast_ref::<Execution<Conc::Op, Conc::Ret>>();
+                if let Some(execution) = execution {
+                    *failed_execution.lock().unwrap() = execution.clone();
+                }
+            })
+        });
+
+        let result = TestRunner::default().run(&any::<Scenario<Conc::Op>>(), |scenario| {
+            check_scenario::<Conc, Seq>(scenario);
+            Ok(())
+        });
+
+        panic::set_hook(old_hook);
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(TestError::Fail(_, _)) => {
+                let failed_execution = Arc::into_inner(failed_execution)
+                    .unwrap()
+                    .into_inner()
+                    .unwrap();
+                Err(failed_execution)
+            }
+            Err(failure) => panic!("Unexpected failure: {:?}", failure),
+        }
+    }
+
+    pub fn verify_or_panic<Conc, Seq>(&self)
+    where
+        Conc: ConcurrentSpec + Send + Sync + 'static,
+        Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
+        Conc::Op: Send + Sync + Clone + Arbitrary + Debug + 'static,
+        Conc::Ret: PartialEq + Debug + Send + Clone,
+    {
+        let result = self.verify::<Conc, Seq>();
+        if let Err(execution) = result {
+            panic!("Non-linearizable execution: \n\n {}", execution);
         }
     }
 }

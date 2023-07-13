@@ -201,3 +201,13 @@ impl<Op, Ret> From<ParallelHistory<Op, Ret>> for Vec<ParallelInvocation<Op, Ret>
         history.inner
     }
 }
+
+impl<Op, Ret> Default for Execution<Op, Ret> {
+    fn default() -> Self {
+        Self {
+            init_part: History::default(),
+            parallel_part: ParallelHistory::default(),
+            post_part: History::default(),
+        }
+    }
+}

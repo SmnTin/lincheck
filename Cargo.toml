@@ -7,8 +7,4 @@ edition = "2021"
 
 [dependencies]
 loom = "0.5"
-quickcheck = "1.0"
-
-[dev-dependencies]
-quickcheck_macros = "1.0"
-
+proptest = "1.1"

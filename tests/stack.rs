@@ -1,7 +1,7 @@
 use lincheck::{ConcurrentSpec, Lincheck, SequentialSpec};
 
 use loom::sync::Mutex;
-use quickcheck::{Arbitrary, Gen};
+use proptest::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Op<T> {
@@ -15,12 +15,12 @@ enum Ret<T> {
     Pop(Option<T>),
 }
 
-impl<T: Arbitrary> Arbitrary for Op<T> {
-    fn arbitrary(g: &mut Gen) -> Self {
-        match bool::arbitrary(g) {
-            true => Op::Push(T::arbitrary(g)),
-            false => Op::Pop,
-        }
+impl<T: Arbitrary + Clone + 'static> Arbitrary for Op<T> {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![any::<T>().prop_map(Op::Push), Just(Op::Pop),].boxed()
     }
 }
 
@@ -76,5 +76,5 @@ impl<T> ConcurrentSpec for ConcurrentStack<T> {
 #[test]
 #[ignore]
 fn models_stack() {
-    Lincheck::default().verify::<ConcurrentStack<u8>, SequentialStack<u8>>();
+    Lincheck::default().verify_or_panic::<ConcurrentStack<u8>, SequentialStack<u8>>();
 }
