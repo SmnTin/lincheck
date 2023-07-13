@@ -74,7 +74,6 @@ impl<T> ConcurrentSpec for ConcurrentStack<T> {
 }
 
 #[test]
-#[ignore]
 fn models_stack() {
     Lincheck::default().verify_or_panic::<ConcurrentStack<u8>, SequentialStack<u8>>();
 }

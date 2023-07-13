@@ -96,7 +96,6 @@ where
 #[derive(Clone, Debug)]
 pub struct Lincheck {
     pub num_threads: usize,
-    pub num_iterations: usize,
     pub num_ops: usize,
 }
 
@@ -104,8 +103,7 @@ impl Default for Lincheck {
     fn default() -> Self {
         Self {
             num_threads: 2,
-            num_iterations: 100,
-            num_ops: 4,
+            num_ops: 5,
         }
     }
 }
@@ -142,6 +140,7 @@ impl Lincheck {
         let failed_execution = Arc::new(Mutex::new(Execution::<Conc::Op, Conc::Ret>::default()));
 
         let old_hook = panic::take_hook();
+
         panic::set_hook({
             let failed_execution = failed_execution.clone();
             Box::new(move |panic_info| {
