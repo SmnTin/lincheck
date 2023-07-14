@@ -1,3 +1,5 @@
+[![Rust CI](https://github.com/SmnTin/lincheck/actions/workflows/general.yml/badge.svg)](https://github.com/SmnTin/lincheck/actions/workflows/general.yml)
+
 # Lincheck
 
 Lincheck is a Rust library for testing concurrent data structures for [linearizability](https://en.wikipedia.org/wiki/Linearizability). Simply put, it checks whether a concurrent data structure behaves similarly to a simpler sequential implementation. It is inspired by [Lincheck for Kotlin](https://github.com/JetBrains/lincheck) and is built on top of [loom](https://github.com/tokio-rs/loom), a model-checker for concurrency.
