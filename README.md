@@ -1,4 +1,7 @@
-[![Rust CI](https://github.com/SmnTin/lincheck/actions/workflows/general.yml/badge.svg)](https://github.com/SmnTin/lincheck/actions/workflows/general.yml)
+[![crates.io](https://img.shields.io/crates/v/lincheck?logo=rust)](https://crates.io/crates/lincheck)
+[![docs.rs](https://img.shields.io/docsrs/lincheck/latest)](https://docs.rs/lincheck/)
+[![Rust CI](https://img.shields.io/github/actions/workflow/status/smntin/lincheck/general.yml?logo=github&label=CI)](https://github.com/SmnTin/lincheck/actions/workflows/general.yml)
+[![MIT License](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
 
 # Lincheck
 
