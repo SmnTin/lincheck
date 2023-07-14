@@ -1,5 +1,4 @@
 use std::fmt::{self, Debug, Display, Formatter};
-use std::iter;
 
 use crate::execution::*;
 
@@ -197,12 +196,18 @@ impl Display for Table {
             })
             .collect();
 
-        let mut column_states: Vec<_> = iter::repeat_with(|| ColumnState {
-            current_span: 0,
-            span_state: SpanState::NextSpan,
-        })
-        .take(self.columns.len())
-        .collect();
+        let mut column_states: Vec<_> = self
+            .columns
+            .iter()
+            .map(|column| ColumnState {
+                current_span: 0,
+                span_state: if column.spans.is_empty() {
+                    SpanState::Finished
+                } else {
+                    SpanState::NextSpan
+                },
+            })
+            .collect();
 
         let print_header_separator = |f: &mut Formatter<'_>| {
             write!(f, "|")?;

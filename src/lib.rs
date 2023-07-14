@@ -113,7 +113,7 @@ impl<Op: Arbitrary + 'static> Arbitrary for Scenario<Op> {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-        let ops_strategy = || prop::collection::vec(any::<Op>(), 1..=args.num_ops);
+        let ops_strategy = || prop::collection::vec(any::<Op>(), 0..=args.num_ops);
         let init_strategy = ops_strategy();
         let post_strategy = ops_strategy();
 
@@ -182,6 +182,7 @@ impl Lincheck {
     {
         let result = self.verify::<Conc, Seq>();
         if let Err(execution) = result {
+            println!("Non-linearizable execution: \n\n {}", execution);
             panic!("Non-linearizable execution: \n\n {}", execution);
         }
     }
