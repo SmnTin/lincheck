@@ -114,7 +114,7 @@ impl SequentialSpec for TwoSlotsSequential {
         Self { x: false, y: false }
     }
 
-    fn seq_exec(&mut self, op: Op) -> Ret {
+    fn exec(&mut self, op: Op) -> Ret {
         match op {
             Op::WriteX => {
                 self.x = true;
