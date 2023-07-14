@@ -199,6 +199,10 @@ $ cargo test -- --test-threads=1
 - [loom](https://github.com/tokio-rs/loom) can't model all weak memory models effects. This means that some executions that may arise on the real hardware may not be explored by loom. This is why the concurrent data structures should be additionally fuzzed on the real hardware. The support for fuzzing in Lincheck is planned.
 - [proptest](https://docs.rs/proptest/latest/proptest/) only explores a random sample of all possible scenarios. This means that some failing executions may not be explored.
 
+## Semver compatibility and MSRV
+
+Lincheck follows [semver](https://semver.org/). However, the API is not yet stable and may change in a breaking way before the first stable release. There are also no guarantees about the MSRV (minimum supported Rust version) for now.
+
 ## License
 
 Lincheck is licensed under the [MIT license](LICENSE).

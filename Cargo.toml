@@ -2,6 +2,14 @@
 name = "lincheck"
 version = "0.1.0"
 edition = "2021"
+description = "A linearizability checker for concurrent data structures"
+authors = ["Semyon Panenkov <smn.pankv@gmail.com>"]
+license-file = "LICENSE"
+readme = "README.md"
+repository = "https://github.com/SmnTin/lincheck"
+homepage = "https://github.com/tokio-rs/loom"
+keywords = ["concurrency", "linearizability", "testing", "verification", "model-checking", "atomic", "lock-free"]
+categories = ["development-tools::testing"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
