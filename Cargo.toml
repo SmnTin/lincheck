@@ -8,7 +8,7 @@ license-file = "LICENSE"
 readme = "README.md"
 repository = "https://github.com/SmnTin/lincheck"
 homepage = "https://github.com/tokio-rs/loom"
-keywords = ["concurrency", "linearizability", "testing", "verification", "model-checking", "atomic", "lock-free"]
+keywords = ["concurrency", "linearizability", "testing", "verification", "lock-free"]
 categories = ["development-tools::testing"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
