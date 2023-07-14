@@ -3,7 +3,7 @@ use proptest::{
     prelude::*,
     test_runner::{TestError, TestRunner},
 };
-use std::sync::{Arc, Mutex};
+use std::panic::UnwindSafe;
 use std::{fmt::Debug, panic, rc::Rc};
 
 mod checker;
@@ -24,19 +24,34 @@ pub struct Scenario<Op> {
     pub post_part: Vec<Op>,
 }
 
-pub fn check_scenario<Conc, Seq>(scenario: Scenario<Conc::Op>)
+pub fn check_scenario<Conc, Seq>(
+    scenario: Scenario<Conc::Op>,
+) -> Result<(), Execution<Conc::Op, Conc::Ret>>
 where
     Conc: ConcurrentSpec + Send + Sync + 'static,
     Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
-    Conc::Op: Send + Sync + Clone + Debug + 'static,
-    Conc::Ret: PartialEq + Debug + Send,
+    Conc::Op: Send + Sync + Clone + Debug + UnwindSafe + 'static,
+    Conc::Ret: PartialEq + Clone + Debug + Send,
 {
-    loom::model(move || {
-        let execution = execute_scenario::<Conc>(scenario.clone());
-        if !LinearizabilityChecker::<Seq>::check(&execution) {
-            panic::panic_any(execution);
-        }
+    let old_hook = panic::take_hook();
+    panic::set_hook(Box::new(|_| {}));
+
+    let result = panic::catch_unwind(|| {
+        loom::model(move || {
+            let execution = execute_scenario::<Conc>(scenario.clone());
+            if !LinearizabilityChecker::<Seq>::check(&execution) {
+                panic::panic_any(execution);
+            }
+        });
     });
+
+    panic::set_hook(old_hook);
+
+    result.map_err(|payload| {
+        *payload
+            .downcast::<Execution<Conc::Op, Conc::Ret>>()
+            .unwrap_or_else(|_| panic!("loom::model panicked with unknown payload"))
+    })
 }
 
 fn execute_scenario<Conc>(scenario: Scenario<Conc::Op>) -> Execution<Conc::Op, Conc::Ret>
@@ -134,40 +149,18 @@ impl Lincheck {
     where
         Conc: ConcurrentSpec + Send + Sync + 'static,
         Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
-        Conc::Op: Send + Sync + Clone + Arbitrary + Debug + 'static,
+        Conc::Op: Send + Sync + Clone + Arbitrary + Debug + UnwindSafe + 'static,
         Conc::Ret: PartialEq + Debug + Send + Clone,
     {
-        let failed_execution = Arc::new(Mutex::new(Execution::<Conc::Op, Conc::Ret>::default()));
-
-        let old_hook = panic::take_hook();
-
-        panic::set_hook({
-            let failed_execution = failed_execution.clone();
-            Box::new(move |panic_info| {
-                let execution = panic_info
-                    .payload()
-                    .downcast_ref::<Execution<Conc::Op, Conc::Ret>>();
-                if let Some(execution) = execution {
-                    *failed_execution.lock().unwrap() = execution.clone();
-                }
-            })
-        });
-
         let result = TestRunner::default().run(&any::<Scenario<Conc::Op>>(), |scenario| {
-            check_scenario::<Conc, Seq>(scenario);
-            Ok(())
+            check_scenario::<Conc, Seq>(scenario)
+                .map_err(|_| TestCaseError::Fail("Non-linearizable execution".into()))
         });
-
-        panic::set_hook(old_hook);
 
         match result {
             Ok(_) => Ok(()),
-            Err(TestError::Fail(_, _)) => {
-                let failed_execution = Arc::into_inner(failed_execution)
-                    .unwrap()
-                    .into_inner()
-                    .unwrap();
-                Err(failed_execution)
+            Err(TestError::Fail(_, scenario)) => {
+                Err(check_scenario::<Conc, Seq>(scenario).unwrap_err())
             }
             Err(failure) => panic!("Unexpected failure: {:?}", failure),
         }
@@ -177,12 +170,11 @@ impl Lincheck {
     where
         Conc: ConcurrentSpec + Send + Sync + 'static,
         Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
-        Conc::Op: Send + Sync + Clone + Arbitrary + Debug + 'static,
+        Conc::Op: Send + Sync + UnwindSafe + Clone + Arbitrary + Debug + 'static,
         Conc::Ret: PartialEq + Debug + Send + Clone,
     {
         let result = self.verify::<Conc, Seq>();
         if let Err(execution) = result {
-            println!("Non-linearizable execution: \n\n {}", execution);
             panic!("Non-linearizable execution: \n\n {}", execution);
         }
     }
