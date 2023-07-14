@@ -7,7 +7,7 @@ authors = ["Semyon Panenkov <smn.pankv@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/SmnTin/lincheck"
-homepage = "https://github.com/tokio-rs/loom"
+documentation = "https://docs.rs/lincheck"
 keywords = ["concurrency", "linearizability", "testing", "verification", "lock-free"]
 categories = ["development-tools::testing"]
 
