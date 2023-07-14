@@ -1,4 +1,3 @@
-
 pub trait SequentialSpec {
     type Op;
     type Ret;

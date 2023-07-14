@@ -94,7 +94,7 @@ impl SequentialSpec for TwoSlotsSequential {
 }
 
 #[test]
-// #[should_panic]
+#[should_panic]
 fn two_slots() {
     Lincheck::default().verify_or_panic::<TwoSlotsParallel, TwoSlotsSequential>()
 }

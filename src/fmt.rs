@@ -26,6 +26,7 @@ struct Column {
     header: String,
     spans: Vec<CellsSpan>,
 }
+
 struct Table {
     cell_height: usize,
     columns: Vec<Column>,
