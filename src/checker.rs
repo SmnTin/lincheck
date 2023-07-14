@@ -1,14 +1,24 @@
+//! The module with the linearizability checker implementation.
+
 use std::collections::HashSet;
 
 use crate::execution::*;
 use crate::spec::*;
 
+/// The linearizability checker itself.
+///
+/// Each linearization of a parallel execution is a topolocial ordering of the happens-before graph.
+/// So the checker works by constructing the happens-before graph from the parallel execution and
+/// brute-forcing all possible topological orderings.
+///
+/// The checker rebuilds the sequential specification for each considered linearization. But it does it
+/// lazily: it only rebuilds the sequential specification when it needs to backtrack and check the other branch.
 pub struct LinearizabilityChecker<'e, Seq: SequentialSpec> {
     execution: &'e Execution<Seq::Op, Seq::Ret>,
-    hb: Vec<Vec<InvocationId>>, // for each invocation in parallel part, a list of invocations which it happens-before
-    in_degree: Vec<usize>, // for each invocation in parallel part, number of invocations that happen-before
-    minimal_invocations: HashSet<InvocationId>, // invocations in parallel part that have in_degree == 0
-    linearized_parallel: Vec<InvocationId>,
+    hb: Vec<Vec<InvocationId>>, // for each invocation in the parallel part, a list of invocations which it happens-before
+    in_degree: Vec<usize>, // for each invocation in the parallel part, number of invocations that happen-before
+    minimal_invocations: HashSet<InvocationId>, // invocations in the parallel part that have in_degree == 0
+    linearized: Vec<InvocationId>,              // current linearization of the parallel part
     seq_spec: Seq,
 }
 
@@ -18,6 +28,7 @@ where
     Seq::Op: Clone,
     Seq::Ret: PartialEq,
 {
+    /// Checks if the given execution is linearizable with respect to the given sequential specification `Seq`.
     pub fn check(execution: &'e Execution<Seq::Op, Seq::Ret>) -> bool {
         let parallel_part = &execution.parallel_part;
         let mut hb_parallel = vec![vec![]; parallel_part.len()];
@@ -49,7 +60,7 @@ where
             hb: hb_parallel,
             in_degree,
             minimal_invocations,
-            linearized_parallel: Vec::new(),
+            linearized: Vec::new(),
             seq_spec: Seq::new(),
         };
 
@@ -91,7 +102,7 @@ where
     }
 
     fn call(&mut self, inv_id: usize) {
-        self.linearized_parallel.push(inv_id);
+        self.linearized.push(inv_id);
         self.minimal_invocations.remove(&inv_id);
         for &next_inv_id in self.hb[inv_id].iter() {
             self.in_degree[next_inv_id] -= 1;
@@ -107,7 +118,7 @@ where
         for inv in self.execution.init_part.iter() {
             self.seq_spec.exec(inv.op.clone());
         }
-        for &inv_id in self.linearized_parallel.iter() {
+        for &inv_id in self.linearized.iter() {
             let inv = &self.execution.parallel_part[inv_id];
             self.seq_spec.exec(inv.op.clone());
         }
@@ -121,7 +132,7 @@ where
             self.in_degree[next_inv_id] += 1;
         }
         self.minimal_invocations.insert(inv_id);
-        self.linearized_parallel.pop();
+        self.linearized.pop();
     }
 }
 

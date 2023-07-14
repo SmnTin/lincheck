@@ -30,6 +30,16 @@ pub(crate) struct ParallelHistory<Op, Ret> {
     inner: Vec<ParallelInvocation<Op, Ret>>,
 }
 
+/// An execution trace of a concurrent program. The trace is divided into three parts:
+/// - The initial part, which consists of invocations that happen before any other invocation
+/// - The parallel part, which consists of invocations that happen concurrently
+/// - The post part, which consists of invocations that happen after all other invocations
+///
+/// It is usually the result of recording the execution of a [Scenario](crate::scenario::Scenario).
+///
+/// There are two ways to obtain the execution trace:
+/// - By recording the execution of a [Scenario](crate::scenario::Scenario) using [execute_scenario_with_loom](crate::scenario::execute_scenario_with_loom).
+/// - By explicitly using the [recorder](crate::recorder) module.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Execution<Op, Ret> {
     pub(crate) init_part: History<Op, Ret>,

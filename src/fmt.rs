@@ -79,6 +79,7 @@ where
     }
 }
 
+// TODO: write tests for this
 impl<Op, Ret> Display for ParallelHistory<Op, Ret>
 where
     Op: Debug,
