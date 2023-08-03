@@ -1,4 +1,5 @@
 # Releasing:
+# 0. Update CHANGELOG.md
 # 1. Bump version (after committing all changes):
 #    `cargo bump patch --git-tag`
 # 2. Push tag:
