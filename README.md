@@ -60,26 +60,51 @@ impl Arbitrary for Op {
 }
 ```
 
+We define the sequential implementation against which we test:
+```rust
+#[derive(Default)]
+struct TwoSlotsSequential {
+    x: bool,
+    y: bool,
+}
+```
+
+We implement the `SequentialSpec` trait for our implementation:
+```rust
+impl SequentialSpec for TwoSlotsSequential {
+    type Op = Op;
+    type Ret = Ret;
+
+    fn exec(&mut self, op: Op) -> Ret {
+        match op {
+            Op::WriteX => {
+                self.x = true;
+                Ret::Write
+            }
+            Op::WriteY => {
+                self.y = true;
+                Ret::Write
+            }
+            Op::ReadX => Ret::Read(self.x),
+            Op::ReadY => Ret::Read(self.y),
+        }
+    }
+}
+```
+
 We then define the concurrent implementation that we want to test:
 ```rust
+#[derive(Default)]
 struct TwoSlotsParallel {
     x: AtomicBool,
     y: AtomicBool,
 }
 ```
 
-We implement the `ConcurrentSpec` trait for our implementation:
+We then implement the `ConcurrentSpec` trait for our implementation, and set the sequential specification:
 ```rust
 impl ConcurrentSpec for TwoSlotsParallel {
-    type Op = Op;
-    type Ret = Ret;
-
-    fn new() -> Self {
-        Self {
-            x: AtomicBool::new(false),
-            y: AtomicBool::new(false),
-        }
-    }
+    type Seq = TwoSlotsSequential;
 
     fn exec(&self, op: Op) -> Ret {
         match op {
@@ -98,41 +123,6 @@ impl ConcurrentSpec for TwoSlotsParallel {
 }
 ```
 We must be able to create a new instance of our implementation and execute an operation on it. The `exec` method should not panic.
-
-We then define the sequential implementation which we test against:
-```rust
-struct TwoSlotsSequential {
-    x: bool,
-    y: bool,
-}
-```
-
-We implement the `SequentialSpec` trait for our implementation:
-```rust
-impl SequentialSpec for TwoSlotsSequential {
-    type Op = Op;
-    type Ret = Ret;
-
-    fn new() -> Self {
-        Self { x: false, y: false }
-    }
-
-    fn exec(&mut self, op: Op) -> Ret {
-        match op {
-            Op::WriteX => {
-                self.x = true;
-                Ret::Write
-            }
-            Op::WriteY => {
-                self.y = true;
-                Ret::Write
-            }
-            Op::ReadX => Ret::Read(self.x),
-            Op::ReadY => Ret::Read(self.y),
-        }
-    }
-}
-```
 
 Notice that the concurrent specification receives a shared reference to itself (`&self`) while the sequential specification receives an exclusive reference to itself (`&mut self`). This is because the concurrent specification is shared between threads while the sequential specification is not.
 

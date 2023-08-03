@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2023-08-03
+
+### Fixed
+- Fixed the `README.md` example.
+
 ## [0.2.0] - 2023-08-03
 
 ### Changed
