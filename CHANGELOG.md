@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2023-08-03
+
 ### Changed
 - `ConcurrentSpec` trait now has the sequential specification as an associated type and reuses the `Op` and `Ret` types from it.
 - `new()` method in the `SequentialSpec` and `ConcurrentSpec` traits was deleted in favor of the `Default` trait.
