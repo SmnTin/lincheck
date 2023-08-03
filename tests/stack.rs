@@ -28,13 +28,15 @@ struct SequentialStack<T> {
     stack: Vec<T>,
 }
 
+impl<T> Default for SequentialStack<T> {
+    fn default() -> Self {
+        Self { stack: Vec::new() }
+    }
+}
+
 impl<T> SequentialSpec for SequentialStack<T> {
     type Op = Op<T>;
     type Ret = Ret<T>;
-
-    fn new() -> Self {
-        Self { stack: Vec::new() }
-    }
 
     fn exec(&mut self, op: Self::Op) -> Self::Ret {
         match op {
@@ -51,17 +53,18 @@ struct ConcurrentStack<T> {
     stack: Mutex<Vec<T>>,
 }
 
-impl<T> ConcurrentSpec for ConcurrentStack<T> {
-    type Op = Op<T>;
-    type Ret = Ret<T>;
-
-    fn new() -> Self {
+impl<T> Default for ConcurrentStack<T> {
+    fn default() -> Self {
         Self {
             stack: Mutex::new(Vec::new()),
         }
     }
+}
 
-    fn exec(&self, op: Self::Op) -> Self::Ret {
+impl<T> ConcurrentSpec for ConcurrentStack<T> {
+    type Seq = SequentialStack<T>;
+
+    fn exec(&self, op: Op<T>) -> Ret<T> {
         let mut stack = self.stack.lock().unwrap();
         match op {
             Op::Push(value) => {
@@ -75,5 +78,5 @@ impl<T> ConcurrentSpec for ConcurrentStack<T> {
 
 #[test]
 fn models_stack() {
-    Lincheck::default().verify_or_panic::<ConcurrentStack<u8>, SequentialStack<u8>>();
+    Lincheck::default().verify_or_panic::<ConcurrentStack<u8>>();
 }

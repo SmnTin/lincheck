@@ -61,7 +61,7 @@ where
             in_degree,
             minimal_invocations,
             linearized: Vec::new(),
-            seq_spec: Seq::new(),
+            seq_spec: Seq::default(),
         };
 
         checker.check_init_part()
@@ -113,7 +113,7 @@ where
     }
 
     fn rebuild_seq_spec(&mut self) {
-        self.seq_spec = Seq::new();
+        self.seq_spec = Seq::default();
 
         for inv in self.execution.init_part.iter() {
             self.seq_spec.exec(inv.op.clone());
@@ -158,13 +158,15 @@ mod tests {
         stack: Vec<T>,
     }
 
+    impl<T> Default for SequentialStack<T> {
+        fn default() -> Self {
+            Self { stack: Vec::new() }
+        }
+    }
+
     impl<T> SequentialSpec for SequentialStack<T> {
         type Op = Op<T>;
         type Ret = Ret<T>;
-
-        fn new() -> Self {
-            Self { stack: Vec::new() }
-        }
 
         fn exec(&mut self, op: Self::Op) -> Self::Ret {
             match op {

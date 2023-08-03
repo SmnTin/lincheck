@@ -25,19 +25,33 @@ impl Arbitrary for Op {
     }
 }
 
+#[derive(Default)]
+struct SequentialCounter {
+    x: usize,
+}
+
+impl SequentialSpec for SequentialCounter {
+    type Op = Op;
+    type Ret = Ret;
+
+    fn exec(&mut self, op: Op) -> Ret {
+        match op {
+            Op::Increment => {
+                let val = self.x;
+                self.x += 1;
+                Ret::OldValue(val)
+            }
+        }
+    }
+}
+
+#[derive(Default)]
 struct ConcurrentCounter {
     x: AtomicUsize,
 }
 
 impl ConcurrentSpec for ConcurrentCounter {
-    type Op = Op;
-    type Ret = Ret;
-
-    fn new() -> Self {
-        Self {
-            x: AtomicUsize::new(0),
-        }
-    }
+    type Seq = SequentialCounter;
 
     fn exec(&self, op: Op) -> Ret {
         match op {
@@ -57,34 +71,11 @@ impl ConcurrentSpec for ConcurrentCounter {
     }
 }
 
-struct SequentialCounter {
-    x: usize,
-}
-
-impl SequentialSpec for SequentialCounter {
-    type Op = Op;
-    type Ret = Ret;
-
-    fn new() -> Self {
-        Self { x: 0 }
-    }
-
-    fn exec(&mut self, op: Op) -> Ret {
-        match op {
-            Op::Increment => {
-                let val = self.x;
-                self.x += 1;
-                Ret::OldValue(val)
-            }
-        }
-    }
-}
-
 #[test]
 fn counter() {
     Lincheck {
         num_threads: 1,
         num_ops: 1,
     }
-    .verify_or_panic::<ConcurrentCounter, SequentialCounter>()
+    .verify_or_panic::<ConcurrentCounter>()
 }

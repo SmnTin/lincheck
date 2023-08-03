@@ -29,14 +29,14 @@ pub struct Scenario<Op> {
 ///
 /// It works by panicking inside using the failing execution as the message and catching the panic outside.
 /// This is the only way to return a value from loom model-checker.
-pub fn check_scenario_with_loom<Conc, Seq>(
-    scenario: Scenario<Conc::Op>,
-) -> Result<(), Execution<Conc::Op, Conc::Ret>>
+pub fn check_scenario_with_loom<Conc>(
+    scenario: Scenario<ConcOp<Conc>>,
+) -> Result<(), Execution<ConcOp<Conc>, ConcRet<Conc>>>
 where
     Conc: ConcurrentSpec + Send + Sync + 'static,
-    Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
-    Conc::Op: Send + Sync + Clone + Debug + UnwindSafe + 'static,
-    Conc::Ret: PartialEq + Clone + Debug + Send,
+    Conc::Seq: Send + Sync + 'static,
+    ConcOp<Conc>: Send + Sync + Clone + Debug + UnwindSafe + 'static,
+    ConcRet<Conc>: PartialEq + Clone + Debug + Send,
 {
     // temporarily disable the panic hook to avoid printing the panic message
     let old_hook = panic::take_hook();
@@ -46,7 +46,7 @@ where
     let result = panic::catch_unwind(|| {
         loom::model(move || {
             let execution = execute_scenario_with_loom::<Conc>(scenario.clone());
-            if !LinearizabilityChecker::<Seq>::check(&execution) {
+            if !LinearizabilityChecker::<Conc::Seq>::check(&execution) {
                 // panic with the failing execution as the payload
                 panic::panic_any(execution);
             }
@@ -59,21 +59,21 @@ where
     result.map_err(|payload| {
         // recover the failing execution from the panic payload
         *payload
-            .downcast::<Execution<Conc::Op, Conc::Ret>>()
+            .downcast::<Execution<ConcOp<Conc>, ConcRet<Conc>>>()
             .unwrap_or_else(|_| panic!("loom::model panicked with unknown payload"))
     })
 }
 
 /// Executes the given scenario with [loom] mock threads and returns the resulting execution.
 pub fn execute_scenario_with_loom<Conc>(
-    scenario: Scenario<Conc::Op>,
-) -> Execution<Conc::Op, Conc::Ret>
+    scenario: Scenario<ConcOp<Conc>>,
+) -> Execution<ConcOp<Conc>, ConcRet<Conc>>
 where
     Conc: ConcurrentSpec + Send + Sync + 'static,
-    Conc::Op: Send + Sync + Clone + 'static,
-    Conc::Ret: PartialEq,
+    ConcOp<Conc>: Send + Sync + Clone + 'static,
+    ConcRet<Conc>: PartialEq,
 {
-    let conc = Rc::new(Conc::new());
+    let conc = Rc::new(Conc::default());
 
     let mut recorder = recorder::record_init_part_with_capacity(scenario.init_part.len());
 

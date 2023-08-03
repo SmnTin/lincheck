@@ -32,38 +32,7 @@ impl Arbitrary for Op {
     }
 }
 
-struct TwoSlotsParallel {
-    x: AtomicBool,
-    y: AtomicBool,
-}
-
-impl ConcurrentSpec for TwoSlotsParallel {
-    type Op = Op;
-    type Ret = Ret;
-
-    fn new() -> Self {
-        Self {
-            x: AtomicBool::new(false),
-            y: AtomicBool::new(false),
-        }
-    }
-
-    fn exec(&self, op: Op) -> Ret {
-        match op {
-            Op::WriteX => {
-                self.x.store(true, Ordering::Relaxed);
-                Ret::Write
-            }
-            Op::WriteY => {
-                self.y.store(true, Ordering::Relaxed);
-                Ret::Write
-            }
-            Op::ReadX => Ret::Read(self.x.load(Ordering::Relaxed)),
-            Op::ReadY => Ret::Read(self.y.load(Ordering::Relaxed)),
-        }
-    }
-}
-
+#[derive(Default)]
 struct TwoSlotsSequential {
     x: bool,
     y: bool,
@@ -72,10 +41,6 @@ struct TwoSlotsSequential {
 impl SequentialSpec for TwoSlotsSequential {
     type Op = Op;
     type Ret = Ret;
-
-    fn new() -> Self {
-        Self { x: false, y: false }
-    }
 
     fn exec(&mut self, op: Op) -> Ret {
         match op {
@@ -93,8 +58,33 @@ impl SequentialSpec for TwoSlotsSequential {
     }
 }
 
+#[derive(Default)]
+struct TwoSlotsParallel {
+    x: AtomicBool,
+    y: AtomicBool,
+}
+
+impl ConcurrentSpec for TwoSlotsParallel {
+    type Seq = TwoSlotsSequential;
+
+    fn exec(&self, op: Op) -> Ret {
+        match op {
+            Op::WriteX => {
+                self.x.store(true, Ordering::Relaxed);
+                Ret::Write
+            }
+            Op::WriteY => {
+                self.y.store(true, Ordering::Relaxed);
+                Ret::Write
+            }
+            Op::ReadX => Ret::Read(self.x.load(Ordering::Relaxed)),
+            Op::ReadY => Ret::Read(self.y.load(Ordering::Relaxed)),
+        }
+    }
+}
+
 #[test]
 #[should_panic]
 fn two_slots() {
-    Lincheck::default().verify_or_panic::<TwoSlotsParallel, TwoSlotsSequential>()
+    Lincheck::default().verify_or_panic::<TwoSlotsParallel>()
 }

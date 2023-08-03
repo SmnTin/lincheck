@@ -54,43 +54,9 @@
 //!     }
 //! }
 //!
-//! // We then define the concurrent implementation that we want to test:
-//! struct TwoSlotsParallel {
-//!     x: AtomicBool,
-//!     y: AtomicBool,
-//! }
-//!
-//! // We implement the `ConcurrentSpec` trait for our implementation:
-//! impl ConcurrentSpec for TwoSlotsParallel {
-//!     type Op = Op;
-//!     type Ret = Ret;
-//!
-//!     // We must be able to create a new instance of our implementation:
-//!     fn new() -> Self {
-//!         Self {
-//!             x: AtomicBool::new(false),
-//!             y: AtomicBool::new(false),
-//!         }
-//!     }
-//!
-//!     // We must be able to execute an operation on our implementation:
-//!     fn exec(&self, op: Op) -> Ret {
-//!         match op {
-//!             Op::WriteX => {
-//!                 self.x.store(true, Ordering::Relaxed);
-//!                 Ret::Write
-//!             }
-//!             Op::WriteY => {
-//!                 self.y.store(true, Ordering::Relaxed);
-//!                 Ret::Write
-//!             }
-//!             Op::ReadX => Ret::Read(self.x.load(Ordering::Relaxed)),
-//!             Op::ReadY => Ret::Read(self.y.load(Ordering::Relaxed)),
-//!         }
-//!     }
-//! }
-//!
-//! // We then define the sequential implementation which we test against:
+//! // We then define the sequential implementation which we test against.
+//! // This type must be default-constructible:
+//! #[derive(Default)]
 //! struct TwoSlotsSequential {
 //!     x: bool,
 //!     y: bool,
@@ -100,10 +66,6 @@
 //! impl SequentialSpec for TwoSlotsSequential {
 //!     type Op = Op;
 //!     type Ret = Ret;
-//!
-//!     fn new() -> Self {
-//!         Self { x: false, y: false }
-//!     }
 //!
 //!     fn exec(&mut self, op: Op) -> Ret {
 //!         match op {
@@ -121,6 +83,38 @@
 //!     }
 //! }
 //!
+//! // We then define the concurrent implementation that we want to test.
+//! // This type must be default-constructible too:
+//! #[derive(Default)]
+//! struct TwoSlotsParallel {
+//!     x: AtomicBool,
+//!     y: AtomicBool,
+//! }
+//!
+//! // We implement the `ConcurrentSpec` trait for our implementation:
+//! impl ConcurrentSpec for TwoSlotsParallel {
+//!     // We declare which sequential specification
+//!     // this data structure implements
+//!     type Seq = TwoSlotsSequential;
+//!
+//!     // We must be able to execute an operation on our implementation.
+//!     // Note that we reuse `Op` and `Ret` types from the sequential spec.
+//!     fn exec(&self, op: Op) -> Ret {
+//!         match op {
+//!             Op::WriteX => {
+//!                 self.x.store(true, Ordering::Relaxed);
+//!                 Ret::Write
+//!             }
+//!             Op::WriteY => {
+//!                 self.y.store(true, Ordering::Relaxed);
+//!                 Ret::Write
+//!             }
+//!             Op::ReadX => Ret::Read(self.x.load(Ordering::Relaxed)),
+//!             Op::ReadY => Ret::Read(self.y.load(Ordering::Relaxed)),
+//!         }
+//!     }
+//! }
+//!
 //!
 //! // Notice that the concurrent specification receives a shared reference to itself (`&self`)
 //! // while the sequential specification receives an exclusive reference to itself (`&mut self`).
@@ -133,7 +127,7 @@
 //!     Lincheck {
 //!         num_threads: 2,
 //!         num_ops: 5,
-//!     }.verify::<TwoSlotsParallel, TwoSlotsSequential>();
+//!     }.verify::<TwoSlotsParallel>();
 //! }
 //! ```
 //!
@@ -258,15 +252,15 @@ impl Lincheck {
     /// the parallel execution is linearizable to some sequential execution.
     ///
     /// It returns a non-linearizable execution if the test fails.
-    pub fn verify<Conc, Seq>(&self) -> Result<(), Execution<Conc::Op, Conc::Ret>>
+    pub fn verify<Conc>(&self) -> Result<(), Execution<ConcOp<Conc>, ConcRet<Conc>>>
     where
         Conc: ConcurrentSpec + Send + Sync + 'static,
-        Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
-        Conc::Op: Send + Sync + Clone + Arbitrary + Debug + UnwindSafe + 'static,
-        Conc::Ret: PartialEq + Debug + Send + Clone,
+        Conc::Seq: Send + Sync + 'static,
+        ConcOp<Conc>: Send + Sync + Clone + Arbitrary + Debug + UnwindSafe + 'static,
+        ConcRet<Conc>: PartialEq + Debug + Send + Clone,
     {
-        let result = TestRunner::default().run(&any::<Scenario<Conc::Op>>(), |scenario| {
-            check_scenario_with_loom::<Conc, Seq>(scenario)
+        let result = TestRunner::default().run(&any::<Scenario<ConcOp<Conc>>>(), |scenario| {
+            check_scenario_with_loom::<Conc>(scenario)
                 .map_err(|_| TestCaseError::Fail("Non-linearizable execution".into()))
         });
 
@@ -274,21 +268,22 @@ impl Lincheck {
             Ok(_) => Ok(()),
             Err(TestError::Fail(_, scenario)) => {
                 // rerun the scenario to get the failing execution
-                Err(check_scenario_with_loom::<Conc, Seq>(scenario).unwrap_err())
+                Err(check_scenario_with_loom::<Conc>(scenario).unwrap_err())
             }
             Err(failure) => panic!("Unexpected failure: {:?}", failure),
         }
     }
 
     /// The same as [verify](Lincheck::verify) but automatically panics and pretty-prints the execution if the test fails.
-    pub fn verify_or_panic<Conc, Seq>(&self)
+    pub fn verify_or_panic<Conc>(&self)
     where
         Conc: ConcurrentSpec + Send + Sync + 'static,
-        Seq: SequentialSpec<Op = Conc::Op, Ret = Conc::Ret> + Send + Sync + 'static,
-        Conc::Op: Send + Sync + UnwindSafe + Clone + Arbitrary + Debug + 'static,
-        Conc::Ret: PartialEq + Debug + Send + Clone,
+        Conc::Seq: Send + Sync + 'static,
+        <Conc::Seq as SequentialSpec>::Op:
+            Send + Sync + UnwindSafe + Clone + Arbitrary + Debug + 'static,
+        <Conc::Seq as SequentialSpec>::Ret: PartialEq + Debug + Send + Clone,
     {
-        let result = self.verify::<Conc, Seq>();
+        let result = self.verify::<Conc>();
         if let Err(execution) = result {
             panic!("Non-linearizable execution: \n\n {}", execution);
         }
