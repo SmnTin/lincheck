@@ -133,7 +133,7 @@ fn two_slots() {
     Lincheck {
         num_threads: 2,
         num_ops: 5,
-    }.verify::<TwoSlotsParallel, TwoSlotsSequential>();
+    }.verify::<TwoSlotsParallel>();
 }
 ```
 
